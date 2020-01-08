@@ -1,0 +1,170 @@
+#!/usr/bin/env python3
+# -*- coding: UTF-8 -*-
+
+from __future__ import print_function # required if run with python2
+import numpy as np
+from astropy.io import fits
+import matplotlib.pyplot as plt
+import argparse
+from ast import literal_eval as parse_tuple
+
+# rProf version string
+version = "1"
+
+# Parse cmdline arguments
+parser = argparse.ArgumentParser(description="Get radial profiles from *.FITS images (2D or cube) and printout text data or generate plot.", prog='rProf', usage='%(prog)s file [options]')
+parser.add_argument("f", metavar="filename", type=str, help="FITS input file(s)", nargs="*")
+parser.add_argument("--hdu", type=int, default=0, required=0, help="select a specific HDU (default: 0)")
+parser.add_argument("-r", "--r_bin_width", metavar="float", type=int, default=1, help="Width of a radial bin. The default is \"1\" (i.e. integer radii)")
+parser.add_argument("-c", "--center", metavar="[x,y(,z)]", type=str, required=0, help="Specify a custom center position within the array/cube in the format [x,y] (or [x,y,z], respectively, for cube) [default: use mid of cube]")
+parser.add_argument("--median", action="store_true", help="Use median rather than mean when averaging over the radial bins?")
+parser.add_argument("--add_std", action="store_true", help="Compute and print also standard deviation of each bin?")
+parser.add_argument("-e", metavar="PATH", type=str, default="profile.txt", required=0, help="Filename prefix to export text data to (default: profile.txt, multiple files: profile_$i.txt)")
+parser.add_argument("--show", "-s", action="store_true", help="Show primitive plot in interactive window?")
+
+parser.add_argument('--version', action='version', version='%(prog)s'+version)
+
+args = parser.parse_args()
+outname = args.e
+files = args.f
+
+for f_idx in range(len(files)):
+
+	# Print filename, open hdu and get dimensions
+	print("--- {} ---".format(files[f_idx]))
+	try:
+		fh = fits.open(files[f_idx])
+		hdu = fh[args.hdu]
+	except:
+		print("Error: unable to open hdu")
+		continue
+	dim = hdu.header["NAXIS"]
+
+	if not dim in [2,3]:
+		print("Error: not a valid FITS file (dimensions != 2 or 3)")
+		continue
+
+	# Get shape
+	N_x = hdu.shape[0]
+	N_y = hdu.shape[1]
+	N_z = 1
+	if dim == 3:
+		N_z = hdu.shape[2]
+	print_interval = int(N_x/100)
+
+	# Set center
+	if args.center == None:
+		center = (N_x/2, N_y/2) if dim == 2 else (N_x/2, N_y/2, N_z/2)
+	else:
+		try:
+			center = parse_tuple(args.center)
+		except:
+			print("Error: couldn't parse option \"--center\"")
+
+		within_bounds = [0 <= center[0] < N_x, 0 <= center[1] < N_y]
+		if dim == 3:
+			within_bounds += [0 <= center[2] < N_z, ]
+		skip = 0
+		for i in within_bounds:
+			if not i:
+				print("Error: center out of bounds")
+				skip = 1
+				break
+		if skip:
+			continue
+
+	# Variables to store data in
+	data = []
+	radius_value_tuples = {}
+
+	# Scan through the data along its axes
+	for x in range(N_x):
+		xc = x - center[0]
+		xs = xc*xc
+		if x % print_interval == 0:
+			print("Progress: {}%".format(int(100*x/N_x)), end="\r")
+
+		for y in range(N_y):
+			yc = y - center[1]
+			ys = yc*yc
+			xy_squared = xs + ys
+
+			for z in range(N_z):
+				
+				# Obtain density value and square of the radius for the pixel (x,y,z)
+				if dim == 3:
+					zc = z - center[1]
+					zs = zc*zc
+
+					val = hdu.data[x,y,z]
+					radius_sq = xy_squared + zs
+				else:
+					val = hdu.data[x,y]
+					radius_sq = xy_squared
+
+				# Add contribution from this pixel to radius_value_tuples
+				# The data is stored in the format radius_value_tuples[r_squared] = values
+				if radius_sq in radius_value_tuples:
+					radius_value_tuples[radius_sq] += [val,]
+				else:
+					radius_value_tuples[radius_sq] = [val]
+	print("")
+
+	fh.close()
+
+	# Apply binning to the values of radii_dictionary and store the binned data in "radial_bins"
+	radial_bins = {}
+	N_rad = len(radius_value_tuples)
+	print_interval = int(N_rad / 100)
+	counter = 0
+	for r_sq in radius_value_tuples:
+		if counter % print_interval == 0:
+			print("Binning: {}%".format(int(100*counter/N_rad)), end="\r")
+		r = np.sqrt(r_sq)
+		r = args.r_bin_width * round(r/args.r_bin_width, 0) # Binning
+		vals = radius_value_tuples[r_sq]
+		if r in radial_bins:
+			radial_bins[r] += vals
+		else:
+			radial_bins[r] = vals
+		counter += 1
+	print("\nAveraging\n")
+
+	# Compute the average for each bin to obtain r-y-pairs
+	ry_pairs = []
+	for r in radial_bins:
+		vals = radial_bins[r]
+		avg = np.median(vals) if args.median else np.mean(vals)
+		if args.add_std:
+			std = np.std(vals)
+			ry_pairs.append([r, avg, std])
+		else:
+			ry_pairs.append([r, avg])
+
+	# Sort by ascending r value
+	ry_pairs = sorted(ry_pairs)
+
+	# Export data
+	this_outname = ".".join(outname.split(".")[:-1]) + ("_" + str(f_idx) if len(files) > 1 else "") + "." + outname.split(".")[-1]
+	f = open(this_outname, "w")
+	if args.add_std:
+		for p in ry_pairs:
+			f.write("{} {} {}\n".format(p[0], p[1], p[2]))
+	else:
+		for p in ry_pairs:
+			f.write("{} {}\n".format(p[0], p[1]))
+	f.close()
+
+	# Add plot
+	if args.show:
+		X = [x[0] for x in ry_pairs]
+		Y = [x[1] for x in ry_pairs]
+		plt.plot(X, Y)
+
+# Show plot
+if args.show:
+	plt.xlabel("Radius [px]")
+	plt.ylabel("Value")
+	plt.title("Radial profile(s)")
+	plt.show()
+	plt.close()
