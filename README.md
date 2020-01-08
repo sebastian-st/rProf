@@ -1,4 +1,4 @@
-# rProf
+# rProf (beta / testing)
 
 Very simple python3 script to create radial profiles of *.FITS images, allowing also to produce a quick plot. The *.FITS standard was developed by NASA for storing astrophysical data.
 
