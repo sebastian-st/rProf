@@ -15,7 +15,7 @@ version = "1"
 parser = argparse.ArgumentParser(description="Get radial profiles from *.FITS images (2D or cube) and printout text data or generate plot.", prog='rProf', usage='%(prog)s file [options]')
 parser.add_argument("f", metavar="filename", type=str, help="FITS input file(s)", nargs="*")
 parser.add_argument("--hdu", type=int, default=0, required=0, help="select a specific HDU (default: 0)")
-parser.add_argument("-r", "--r_bin_width", metavar="float", type=int, default=1, help="Width of a radial bin. The default is \"1\" (i.e. integer radii)")
+parser.add_argument("-r", "--r_bin_width", metavar="float", type=float, default=1, help="Width of a radial bin. The default is \"1\" (i.e. integer radii)")
 parser.add_argument("-c", "--center", metavar="[x,y(,z)]", type=str, required=0, help="Specify a custom center position within the array/cube in the format [x,y] (or [x,y,z], respectively, for cube) [default: use mid of cube]")
 parser.add_argument("--median", action="store_true", help="Use median rather than mean when averaging over the radial bins?")
 parser.add_argument("--add_std", action="store_true", help="Compute and print also standard deviation of each bin?")
